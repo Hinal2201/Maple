@@ -9,6 +9,7 @@ import pandas as pd
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 AS_OF = pd.Timestamp("2026-09-21T22:00:00Z")
+UPDATED_AS_OF = pd.Timestamp("2026-09-21T22:48:00Z")
 TZ = ZoneInfo("America/Toronto")
 SEVERITY = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}
 SEVERITY_NAME = {v: k for k, v in SEVERITY.items()}
@@ -21,6 +22,13 @@ KEY_COLS = ["vehicle_id", "driver_id", "alert_type", "event_time_utc",
 def load_data(data_dir: Path = DATA_DIR) -> dict[str, pd.DataFrame]:
     read = lambda name: pd.read_csv(data_dir / name, dtype=str, keep_default_na=False)
     alerts, vehicles = read("alerts.csv"), read("vehicles.csv")
+    alerts["source_file"] = "alerts.csv"
+    backfill_path = data_dir / "hamilton_backfill.csv"
+    backfill = (read("hamilton_backfill.csv") if backfill_path.exists()
+                else alerts.iloc[0:0].copy())
+    if len(backfill):
+        backfill["source_file"] = "hamilton_backfill.csv"
+    alerts = pd.concat([alerts, backfill], ignore_index=True)
     references, orders = read("dtc_reference.csv"), read("work_orders.csv")
 
     alerts["event_time"] = pd.to_datetime(alerts["event_time_utc"], utc=True)
@@ -43,6 +51,7 @@ def deduplicate(alerts: pd.DataFrame) -> pd.DataFrame:
     events = (a.groupby(KEY_COLS, sort=False)
                 .agg(alert_id=("alert_id", "first"),
                      source_ids=("alert_id", list),
+                     source_files=("source_file", lambda values: sorted(set(values))),
                      sev_rank=("sev_rank", "max"),
                      event_time=("event_time", "first"),
                      received_time=("received_time", "min"))
@@ -212,17 +221,26 @@ def build_model(data: dict, as_of=AS_OF) -> dict:
                    delayed_over_1h=("delay_h", lambda s: int((s > 1).sum())),
                    max_delay_h=("delay_h", "max")).round(1))
 
+    critical = actions[actions.priority == "Critical"]
     return dict(
         as_of=as_of, evaluated=evaluated, actions=actions,
         drivers=drivers.sort_values("per_1000km", ascending=False).reset_index(),
         firmware=firmware.reset_index(), delays=delays.reset_index(), orders=orders,
         kpis=dict(raw=len(available), unique=len(unique), duplicates=len(available) - len(unique),
                   vendor_high=int((available.vendor_severity == "HIGH").sum()),
-                  critical=int((actions.priority == "Critical").sum()),
+                  critical=int(len(critical)),
+                  critical_vehicles=int(critical.vehicle_id.nunique()),
                   open_actions=len(actions),
                   excluded=int((evaluated.score == 0).sum()),
                   missing_limits=int(((unique.alert_type == "speeding")
                                       & (unique.posted_limit_kmh == "")).sum())))
+
+
+def build_snapshots(data: dict) -> dict[str, dict]:
+    return {
+        "original": build_model(data, AS_OF),
+        "updated": build_model(data, UPDATED_AS_OF),
+    }
 
 
 def select_queue(actions: pd.DataFrame, depot="", owner="", search="", vendor_only=False, top=10):
@@ -233,12 +251,16 @@ def select_queue(actions: pd.DataFrame, depot="", owner="", search="", vendor_on
     if search:
         hay = q[["vehicle_id", "driver_id", "title", "dtc_code", "depot"]].fillna("").agg(" ".join, axis=1)
         q = q[hay.str.lower().str.contains(search.lower(), regex=False)]
-    # One card per vehicle + owner (keep the strongest)
-    q = q.drop_duplicates(["vehicle_id", "owner"], keep="first")
+    # Keep distinct Critical DTCs visible; collapse other actions per vehicle/owner.
+    q = q.copy()
+    q["handoff_group"] = q.apply(
+        lambda row: row.dtc_code if row.priority == "Critical" and row.alert_type == "engine_fault" else "",
+        axis=1)
+    q = q.drop_duplicates(["vehicle_id", "owner", "handoff_group"], keep="first")
     return q.head(top) if top else q
 
 
 if __name__ == "__main__":
-    m = build_model(load_data())
+    m = build_snapshots(load_data())["updated"]
     print(m["kpis"])
-    print(select_queue(m["actions"])[["vehicle_id", "priority", "score", "title", "due"]])
+    print(select_queue(m["actions"])[["vehicle_id", "priority", "score", "dtc_code", "title", "due"]])
