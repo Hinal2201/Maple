@@ -110,8 +110,8 @@ Saving a note does not notify another user, create a work order, clear a fault o
 - `python -m unittest discover -s python_dashboard -v`: five focused tests verify original/updated cutoffs and counts, three distinct Critical actions and their exact top-three order, separate event/receipt times and source provenance, missing-limit handling, V-126's +44 km/h, and Hamilton's 114/587 to 124/597 change.
 - `python python_dashboard/processing.py`: recomputes the updated snapshot and prints its metrics and top actions.
 - The Streamlit page was opened at `http://localhost:8501`. Its rendered state showed the 18:48 snapshot, both hold vehicles, all three distinct Critical actions in order, and correct source files plus UTC-to-Eastern receipt times. The app restarted after the processing helper was corrected.
-- `python -m py_compile` passed for the app, processing module and tests. Editor diagnostics for the app, processor and tests found no errors.
-- No production build is required for this Python/Streamlit app. The integrated browser interaction was validated by rendered page state; an automated native-click walkthrough of each widget was not completed.
+- `python -m py_compile` passed for the app, processing module and tests. The running Streamlit environment has pandas and Streamlit installed. VS Code's selected analysis interpreter currently does not resolve those two imports; select the environment used to run Streamlit or install `python_dashboard/requirements.txt` into the selected environment to clear those editor-only diagnostics.
+- No production build is required for this Python/Streamlit app. The integrated browser confirmed the rendered updated page and data. The snapshot selector's native pointer interaction and an automated click-through of every widget were not completed.
 
 The app uses only supplied synthetic data. It is decision support, not a certified diagnostic or safety system. A qualified human must confirm vehicle status, inspect and authorize release.
 

@@ -50,7 +50,7 @@ c = st.columns(6)
 c[0].metric("Raw alerts", k["raw"])
 c[1].metric("Duplicates removed", k["duplicates"])
 c[2].metric("Vendor HIGH", k["vendor_high"])
-c[3].metric("Open actions", k["open_actions"])
+c[3].metric("Ranked actions", k["open_actions"], delta="10 in work queue")
 c[4].metric("Critical vehicles", k["critical_vehicles"], delta=f"{k['critical']} fault actions")
 c[5].metric("Excluded / resolved", k["excluded"])
 
@@ -133,8 +133,8 @@ tab_q, tab_all, tab_drv, tab_dq, tab_wo, tab_backfill = st.tabs(
     ["Action queue", "All alerts", "Drivers & firmware", "Data quality", "Work orders", "Hamilton backfill"])
 
 with tab_q:
-    st.caption("Update status / assignee / notes, then Save. Stored in action_log.csv.")
-    queue = select_queue(actions, depot, owner, search, vendor_only, top=None)
+    st.caption("Work the ten highest-ranked filtered actions. All source alerts remain available in the All alerts tab.")
+    queue = select_queue(actions, depot, owner, search, vendor_only, top=10)
     view = queue[["action_id", "priority", "score", "vehicle_id", "depot", "driver_id",
                   "title", "action", "owner", "due", "events", "latest_local", "age_h"]]
     view = view.merge(load_log(), on="action_id", how="left").fillna({"status": "New", "assignee": "", "notes": ""})
